@@ -17,7 +17,6 @@
 static const char* FONT_PATH = "/usr/share/fonts/DejaVuSansMono.ttf";
 static const int   FONT_SIZE = 24;
 
-//---- NV12 OSD：FreeType 文字 + 检测框，画到采集源 NV12 上，LCD 和推流共用 ----
 static FT_Library g_ft = nullptr;
 static FT_Face    g_face = nullptr;
 static int        g_asc_px = 0;
@@ -62,7 +61,7 @@ static int osd_text_width(const char* text) {
     return w;
 }
 
-//半透明黑底（只压暗 Y，简单可靠）
+//半透明黑底
 static void osd_fill_rect(uint8_t* nv12, int w, int h, int stride,
                           int x, int y, int rw, int rh) {
     int x0 = x < 0 ? 0 : x;
@@ -76,7 +75,7 @@ static void osd_fill_rect(uint8_t* nv12, int w, int h, int stride,
     }
 }
 
-//把单个 FreeType 字形写进 NV12 的 Y 平面（白色 + 中性 UV）
+//把单个 FreeType 字形写进 NV12 的 Y 平面
 static void osd_draw_glyph(uint8_t* nv12, int w, int h, int stride,
                            const FT_Bitmap* bmp, int x, int y) {
     uint8_t* uv = nv12 + stride * h;
@@ -158,23 +157,23 @@ int My_Task::stop()
 
 void My_Task::capture_thread_func()
 {
-    printf("[Task] Capture thread started\n");
+    printf("Task | Capture thread started\n");
 
     Capture cap;
     if (cap.init(task_cfg_.device_path, task_cfg_.capture_width,
                  task_cfg_.capture_height, task_cfg_.capture_buf_count) < 0) {
-        printf("[Task] Capture init failed\n");
+        printf("Task | Capture init failed\n");
         return;
     }
 
     LcdDisplay lcd;
     if (lcd.init() < 0) {
-        printf("[Task] LCD init failed\n");
+        printf("Task | LCD init failed\n");
         return;
     }
 
     if (osd_init_font(FONT_PATH, FONT_SIZE) < 0)
-        printf("[Task] font load failed, no text overlay\n");
+        printf("Task | font load failed, no text overlay\n");
 
     FpsCounter cap_fps;//采集帧率
     FpsCounter disp_fps;//显示帧率
@@ -202,11 +201,11 @@ void My_Task::capture_thread_func()
         int h = cap.get_height();
         int stride = cap.get_stride();
 
-        //1. 给推理单独拷贝一份（在画 OSD 之前，保证模型看到干净图）
+        //给推理单独拷贝一份
         uint8_t* inf_copy = (uint8_t*)malloc(frame_bytes);
         memcpy(inf_copy, src, frame_bytes);
 
-        //2. 画 OSD：检测框 + 帧率文字，画到源 NV12
+        //画 OSD：检测框 + 帧率文字，画到源 NV12
         std::vector<Detection> dets;
         {
             std::lock_guard<std::mutex> lock(det_mtx_);
@@ -217,11 +216,11 @@ void My_Task::capture_thread_func()
                  cap_fps.fps(), disp_fps.fps(), enc_fps_.load());
         osd_draw(src, w, h, stride, dets, osd_text);
 
-        //3. LCD 显示
+        // LCD 显示
         if (lcd.show(src, w, h, stride) == 0)
             disp_fps.tick();
 
-        //4. 推入推理队列
+        //推入推理队列
         FrameData inf_fd;
         inf_fd.index = frame_idx;
         inf_fd.v4l2_buf_index = idx;
@@ -235,7 +234,7 @@ void My_Task::capture_thread_func()
         inf_fd.capture_ts_us = pts_us;
         raw_queue_.push(inf_fd);
 
-        //5. 推入编码队列（dma-buf fd 零拷贝，buffer 由编码线程用完归还）
+        //推入编码队列
         FrameData enc_fd;
         enc_fd.index = frame_idx;
         enc_fd.v4l2_buf_index = idx;
@@ -256,12 +255,12 @@ void My_Task::capture_thread_func()
 
     cap.stop();
     osd_destroy();
-    printf("[Task] Capture thread exited\n");
+    printf("Task | Capture thread exited\n");
 }
 
 void My_Task::inference_thread_func()
 {
-    printf("[Task] Inference thread started\n");
+    printf("Task | Inference thread started\n");
 
     RKNNInference infer;
     RKNNInference::Config inf_cfg;
@@ -271,7 +270,7 @@ void My_Task::inference_thread_func()
 
     if (task_cfg_.enable_inference) {
         if (infer.init(inf_cfg) < 0) {
-            printf("[Task] RKNN init failed, inference disabled\n");
+            printf("Task | RKNN init failed, inference disabled\n");
             task_cfg_.enable_inference = false;
         }
     }
@@ -279,7 +278,7 @@ void My_Task::inference_thread_func()
     int rgb_size = infer.get_rgb_buf_size();
     uint8_t* rgb_buf = (uint8_t*)malloc(rgb_size);
     if (!rgb_buf) {
-        printf("[Task] malloc rgb buf failed\n");
+        printf("Task | malloc rgb buf failed\n");
         return;
     }
 
@@ -302,12 +301,12 @@ void My_Task::inference_thread_func()
     }
 
     free(rgb_buf);
-    printf("[Task] Inference thread exited\n");
+    printf("Task | Inference thread exited\n");
 }
 
 void My_Task::encoder_thread_func()
 {
-    printf("[Task] Encoder thread started\n");
+    printf("Task | Encoder thread started\n");
 
     EncoderStream enc;
     EncoderStream::Config enc_cfg;
@@ -320,7 +319,7 @@ void My_Task::encoder_thread_func()
     enc_cfg.http_port     = task_cfg_.http_port;
 
     if (enc.init(enc_cfg) < 0) {
-        printf("[Task] Encoder init failed\n");
+        printf("Task | Encoder init failed\n");
         return;
     }
 
@@ -342,5 +341,5 @@ void My_Task::encoder_thread_func()
         recycle_buffer(fd.v4l2_buf_index);
     }
 
-    printf("[Task] Encoder thread exited\n");
+    printf("Task | Encoder thread exited\n");
 }

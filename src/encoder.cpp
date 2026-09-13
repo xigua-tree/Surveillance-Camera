@@ -383,12 +383,12 @@ int EncoderStream::feed_frame(int nv12_fd,                          // 输入的
                 enc_frame_idx++;//增加编码帧计数
             }
 
-            //释放当前包（内部缓冲区 pkt_buf_ 被复用）
+            //释放当前包
             mpp_packet_deinit(&packet);
         }
     } while (!eoi); //因为 eoi=1，循环只执行一次
 
-    //释放输入帧缓冲区（归还给缓冲区组，供后续复用）
+    //释放输入帧缓冲区
     mpp_buffer_put(frm_buf_);
     frm_buf_ = nullptr;
 
